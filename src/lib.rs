@@ -1,6 +1,6 @@
 #![no_std]
 
-//! ILI9341 Display Driver
+//! ILI9488 Display Driver
 //!
 //! ### Usage
 //!
@@ -31,8 +31,7 @@ use embedded_hal::digital::OutputPin;
 use display_interface::DataFormat;
 use display_interface::WriteOnlyDataCommand;
 
-#[cfg(feature = "graphics")]
-mod graphics_core;
+// mod graphics_core;
 
 pub use embedded_hal::spi::MODE_0 as SPI_MODE;
 
@@ -48,20 +47,34 @@ pub trait DisplaySize {
     const HEIGHT: usize;
 }
 
-/// Generic display size of 240x320 pixels
-pub struct DisplaySize240x320;
-
-impl DisplaySize for DisplaySize240x320 {
-    const WIDTH: usize = 240;
-    const HEIGHT: usize = 320;
-}
-
 /// Generic display size of 320x480 pixels
 pub struct DisplaySize320x480;
 
 impl DisplaySize for DisplaySize320x480 {
     const WIDTH: usize = 320;
     const HEIGHT: usize = 480;
+}
+
+pub trait Ili9488PixelFormat: Copy + Clone {
+    fn to_data(&self) -> u8;
+}
+
+/// 3 bpp
+#[derive(Copy, Clone)]
+pub struct Rgb111Mode;
+
+impl Ili9488PixelFormat for Rgb111Mode {
+    fn to_data(&self) -> u8 {
+        0x1
+    }
+}
+/// 18 bpp
+#[derive(Copy, Clone)]
+pub struct Rgb666Mode;
+impl Ili9488PixelFormat for Rgb666Mode {
+    fn to_data(&self) -> u8 {
+        0x66
+    }
 }
 
 /// For quite a few boards (ESP32-S2-Kaluga-1, M5Stack, M5Core2 and others),
@@ -108,6 +121,8 @@ pub enum ModeState {
     Off,
 }
 
+/// In 4-wire spi mode, only RGB111 or RGB666 data formats are supported
+///
 /// There are two method for drawing to the screen:
 /// [Ili9341::draw_raw_iter] and [Ili9341::draw_raw_slice]
 ///
@@ -123,79 +138,182 @@ pub enum ModeState {
 /// - As soon as a pixel is received, an internal counter is incremented,
 ///   and the next word will fill the next pixel (the adjacent on the right, or
 ///   the first of the next row if the row ended)
-pub struct Ili9341<IFACE, RESET> {
+pub struct Ili9488<IFACE, RESET, PixelFormat: Ili9488PixelFormat> {
     interface: IFACE,
     reset: RESET,
     width: usize,
     height: usize,
     landscape: bool,
+    _pixel_format: PixelFormat,
 }
 
-impl<IFACE, RESET> Ili9341<IFACE, RESET>
+impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
 where
     IFACE: WriteOnlyDataCommand,
     RESET: OutputPin,
+    PixelFormat: Ili9488PixelFormat,
 {
-    pub fn new<DELAY, SIZE, MODE>(
+    pub fn new<DELAY, MODE>(
         interface: IFACE,
         reset: RESET,
         delay: &mut DELAY,
-        mode: MODE,
-        _display_size: SIZE,
+        orientation: MODE,
+        pixel_format: PixelFormat,
     ) -> Result<Self>
     where
         DELAY: DelayNs,
-        SIZE: DisplaySize,
         MODE: Mode,
     {
-        let mut ili9341 = Ili9341 {
+        let mut ili9488 = Ili9488 {
             interface,
             reset,
-            width: SIZE::WIDTH,
-            height: SIZE::HEIGHT,
+            width: DisplaySize320x480::WIDTH,
+            height: DisplaySize320x480::HEIGHT,
             landscape: false,
+            _pixel_format: pixel_format,
         };
 
+        // Put SPI bus in known state for TFT with CS tied low
+        ili9488.command(Command::NOP, &[])?;
+
+        ili9488
+            .reset
+            .set_high()
+            .map_err(|_| DisplayError::RSError)?;
+        delay.delay_ms(5);
+
         // Do hardware reset by holding reset low for at least 10us
-        ili9341.reset.set_low().map_err(|_| DisplayError::RSError)?;
-        let _ = delay.delay_ms(1);
+        ili9488.reset.set_low().map_err(|_| DisplayError::RSError)?;
+        let _ = delay.delay_ms(20);
+
         // Set high for normal operation
-        ili9341
+        ili9488
             .reset
             .set_high()
             .map_err(|_| DisplayError::RSError)?;
 
-        // Wait 5ms after reset before sending commands
-        // and 120ms before sending Sleep Out
-        let _ = delay.delay_ms(5);
+        // Wait for reset to complete
+        let _ = delay.delay_ms(150);
 
         // Do software reset
-        ili9341.command(Command::SoftwareReset, &[])?;
+        ili9488.command(Command::SoftwareReset, &[])?;
 
         // Wait 5ms after reset before sending commands
         // and 120ms before sending Sleep Out
-        let _ = delay.delay_ms(120);
+        let _ = delay.delay_ms(150);
 
-        ili9341.set_orientation(mode)?;
+        // Initialization Sequence, taken from (https://github.com/Bodmer/TFT_eSPI/blob/master/TFT_Drivers/ILI9488_Init.h)
 
-        // Set pixel format to 16 bits per pixel
-        ili9341.command(Command::PixelFormatSet, &[0x55])?;
+        // Positive Gamma Control
+        ili9488.command(
+            Command::PositiveGammaControl,
+            &[
+                0x00, 0x03, 0x09, 0x08, 0x16, 0x0A, 0x3F, 0x78, 0x4C, 0x09, 0x0A, 0x08, 0x16, 0x1A,
+                0x0F,
+            ],
+        )?;
 
-        ili9341.sleep_mode(ModeState::Off)?;
+        // Negative Gamma Control
+        ili9488.command(
+            Command::NegativeGammaControl,
+            &[
+                0x00, 0x16, 0x19, 0x03, 0x0F, 0x05, 0x32, 0x45, 0x46, 0x04, 0x0E, 0x0D, 0x35, 0x37,
+                0x0F,
+            ],
+        )?;
 
-        // Wait 5ms after Sleep Out before sending commands
-        let _ = delay.delay_ms(5);
+        ili9488.command(Command::PowerControl1, &[0x17, 0x15])?;
 
-        ili9341.display_mode(ModeState::On)?;
+        ili9488.command(Command::PowerControl2, &[0x41])?;
 
-        Ok(ili9341)
+        ili9488.command(Command::VCOMControl, &[0x00, 0x12, 0x80])?;
+
+        ili9488.command(Command::MemoryAccessControl, &[0x48])?; // MX, BGR
+
+        ili9488.command(Command::PixelFormatSet, &[pixel_format.to_data()])?;
+
+        ili9488.command(Command::InterfaceModeControl, &[0x00])?;
+
+        ili9488.command(Command::NormalModeFrameRate, &[0xA0])?;
+
+        ili9488.command(Command::DisplayInversionControl, &[0x02])?;
+
+        ili9488.command(Command::DisplayFunctionControl, &[0x02, 0x02, 0x3B])?;
+
+        ili9488.command(Command::EntryModeSet, &[0xC6])?;
+
+        ili9488.command(Command::AdjustControl3, &[0xA9, 0x51, 0x2C, 0x82])?;
+
+        ili9488.sleep_mode(ModeState::Off)?;
+
+        ili9488.set_orientation(orientation)?;
+
+        ili9488.display_mode(ModeState::On)?;
+
+        // 18 bits per pixel -> 3 bytes per pixel
+        // let color = core::iter::repeat([0xffu8, 0x00u8, 0x00u8]).take(SIZE::WIDTH * SIZE::HEIGHT);
+        let rgb333_colors = [
+            [0xffu8, 0x00u8, 0x00u8],
+            [0xffu8, 0xffu8, 0x00u8],
+            [0x00u8, 0xffu8, 0x00u8],
+            [0x00u8, 0xffu8, 0xffu8],
+            [0x00u8, 0x00u8, 0xffu8],
+            [0xffu8, 0x00u8, 0xffu8],
+            [0xffu8, 0xffu8, 0xffu8],
+        ];
+        let rgb111_colors = [
+            0b00100100, 0b00110110, 0b00010010, 0b00011011, 0b00001001, 0b00101101,
+        ];
+        let mut i = 0usize;
+        ili9488.set_window(0, 0, ili9488.width() as u16, ili9488.height() as u16)?;
+        loop {
+            let mut div = 1;
+            if (i % 2) == 0 {
+                ili9488.command(Command::PixelFormatSet, &[0x61])?; // 3 bpp
+                div = 2;
+            } else {
+                ili9488.command(Command::PixelFormatSet, &[0x66])?; // 18 bpp
+            }
+
+            // ili9488.command(Command::PixelFormatSet, &[0x66])?; // 18 bpp
+            ili9488.command(Command::MemoryWrite, &[])?;
+            for _ in 0..(ili9488.width() * ili9488.height() / div) {
+                if (i % 2) == 0 {
+                    ili9488
+                        .interface
+                        // .send_data(DataFormat::U8(&rgb333_colors[i % rgb333_colors.len()]))?;
+                        .send_data(DataFormat::U8(&[rgb111_colors[i % rgb111_colors.len()]]))?;
+                } else {
+                    ili9488
+                        .interface
+                        .send_data(DataFormat::U8(&rgb333_colors[i % rgb333_colors.len()]))?;
+                    // .send_data(DataFormat::U8(&[rgb111_colors[i % rgb111_colors.len()]]))?;
+                }
+            }
+            delay.delay_ms(1000);
+            i += 1;
+        }
+
+        Ok(ili9488)
     }
 }
 
-impl<IFACE, RESET> Ili9341<IFACE, RESET>
+impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
 where
     IFACE: WriteOnlyDataCommand,
+    PixelFormat: Ili9488PixelFormat,
 {
+    fn set_pixel_format(mut self, pixel_format: impl Ili9488PixelFormat) -> Self<IFACE, RESET> {
+        self.command(Command::PixelFormatSet, &[pixel_format.to_data()]);
+        Self {
+            interface: self.interface,
+            reset: self.reset,
+            width: DisplaySize320x480::WIDTH,
+            height: DisplaySize320x480::HEIGHT,
+            landscape: false,
+            _pixel_format: pixel_format,
+        }
+    }
     fn command(&mut self, cmd: Command, args: &[u8]) -> Result {
         self.interface.send_commands(DataFormat::U8(&[cmd as u8]))?;
         self.interface.send_data(DataFormat::U8(args))
@@ -313,16 +431,16 @@ where
     }
 
     /// Change the orientation of the screen
-    pub fn set_orientation<MODE>(&mut self, mode: MODE) -> Result
+    pub fn set_orientation<MODE>(&mut self, orientation: MODE) -> Result
     where
         MODE: Mode,
     {
-        self.command(Command::MemoryAccessControl, &[mode.mode()])?;
+        self.command(Command::MemoryAccessControl, &[orientation.mode()])?;
 
-        if self.landscape ^ mode.is_landscape() {
+        if self.landscape ^ orientation.is_landscape() {
             core::mem::swap(&mut self.height, &mut self.width);
         }
-        self.landscape = mode.is_landscape();
+        self.landscape = orientation.is_landscape();
         Ok(())
     }
 
@@ -396,7 +514,16 @@ where
     }
 }
 
-impl<IFACE, RESET> Ili9341<IFACE, RESET> {
+// Implement draw functions for rgb666 pixels
+impl<IFACE, RESET> Ili9488<IFACE, RESET, Rgb666Mode> {}
+
+// Implement draw functions for rgb111 pixels
+impl<IFACE, RESET> Ili9488<IFACE, RESET, Rgb111Mode> {}
+
+impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
+where
+    PixelFormat: Ili9488PixelFormat,
+{
     /// Get the current screen width. It can change based on the current orientation
     pub fn width(&self) -> usize {
         self.width
@@ -405,6 +532,10 @@ impl<IFACE, RESET> Ili9341<IFACE, RESET> {
     /// Get the current screen heighth. It can change based on the current orientation
     pub fn height(&self) -> usize {
         self.height
+    }
+    /// Consumes the ILI9488, gives back the interface and reset peripherals
+    pub fn release(self) -> (IFACE, RESET) {
+        (self.interface, self.reset)
     }
 }
 
@@ -466,6 +597,7 @@ pub enum FrameRateClockDivision {
 
 #[derive(Clone, Copy)]
 enum Command {
+    NOP = 0x00,
     SoftwareReset = 0x01,
     MemoryAccessControl = 0x36,
     PixelFormatSet = 0x3a,
@@ -484,6 +616,16 @@ enum Command {
     IdleModeOn = 0x39,
     SetBrightness = 0x51,
     ContentAdaptiveBrightness = 0x55,
+    InterfaceModeControl = 0xb0,
     NormalModeFrameRate = 0xb1,
     IdleModeFrameRate = 0xb2,
+    DisplayInversionControl = 0xb4,
+    DisplayFunctionControl = 0xb6,
+    EntryModeSet = 0xb7,
+    PowerControl1 = 0xc0,
+    PowerControl2 = 0xc1,
+    VCOMControl = 0xc5,
+    PositiveGammaControl = 0xe0,
+    NegativeGammaControl = 0xe1,
+    AdjustControl3 = 0xf7,
 }
