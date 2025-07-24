@@ -164,7 +164,7 @@ where
         DELAY: DelayNs,
         MODE: Mode,
     {
-        let mut ili9488 = Ili9488 {
+        let mut ili9488 = Self {
             interface,
             reset,
             width: DisplaySize320x480::WIDTH,
@@ -303,16 +303,19 @@ where
     IFACE: WriteOnlyDataCommand,
     PixelFormat: Ili9488PixelFormat,
 {
-    fn set_pixel_format(mut self, pixel_format: impl Ili9488PixelFormat) -> Self<IFACE, RESET> {
-        self.command(Command::PixelFormatSet, &[pixel_format.to_data()]);
-        Self {
+    fn set_pixel_format<P: Ili9488PixelFormat>(
+        mut self,
+        pixel_format: P,
+    ) -> Result<Ili9488<IFACE, RESET, P>> {
+        self.command(Command::PixelFormatSet, &[pixel_format.to_data()])?;
+        Ok(Ili9488 {
             interface: self.interface,
             reset: self.reset,
             width: DisplaySize320x480::WIDTH,
             height: DisplaySize320x480::HEIGHT,
             landscape: false,
             _pixel_format: pixel_format,
-        }
+        })
     }
     fn command(&mut self, cmd: Command, args: &[u8]) -> Result {
         self.interface.send_commands(DataFormat::U8(&[cmd as u8]))?;
