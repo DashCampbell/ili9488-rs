@@ -1,7 +1,7 @@
 # Copyright 2022 Arm Limited and/or its affiliates <open-source-office@arm.com>
 
 [package]
-name = "ili9488"
+name = "ili9488-rs"
 version = "0.1.0"
 description = "A platform agnostic driver to interface with the ILI9488 TFT LCD display"
 authors = ["Dash Campbell"]

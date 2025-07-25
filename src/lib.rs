@@ -28,8 +28,10 @@
 use embedded_hal::delay::DelayNs;
 use embedded_hal::digital::OutputPin;
 
-use display_interface::DataFormat;
-use display_interface::WriteOnlyDataCommand;
+use display_interface::{DataFormat, WriteOnlyDataCommand};
+
+use embedded_graphics_core::pixelcolor::{IntoStorage, PixelColor, Rgb666};
+use embedded_graphics_core::prelude::RgbColor;
 
 // mod graphics_core;
 
@@ -55,8 +57,11 @@ impl DisplaySize for DisplaySize320x480 {
     const HEIGHT: usize = 480;
 }
 
+/// Trait for Valid Pixel Formats for the ILI9488
+/// Implemented by [Rgb111Mode] & [Rgb666Mode]
 pub trait Ili9488PixelFormat: Copy + Clone {
-    fn to_data(&self) -> u8;
+    /// The data used for the PixelFormatSet command
+    const DATA: u8;
 }
 
 /// 3 bpp
@@ -64,17 +69,88 @@ pub trait Ili9488PixelFormat: Copy + Clone {
 pub struct Rgb111Mode;
 
 impl Ili9488PixelFormat for Rgb111Mode {
-    fn to_data(&self) -> u8 {
-        0x1
-    }
+    const DATA: u8 = 0x1;
 }
 /// 18 bpp
 #[derive(Copy, Clone)]
 pub struct Rgb666Mode;
 impl Ili9488PixelFormat for Rgb666Mode {
-    fn to_data(&self) -> u8 {
-        0x66
+    const DATA: u8 = 0x66;
+}
+
+#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
+pub enum Rgb111 {
+    BLACK,
+    RED,
+    GREEN,
+    BLUE,
+    YELLOW,
+    MAGENTA,
+    CYAN,
+    WHITE,
+}
+impl Rgb111 {
+    /// Returns the color in binary form.
+    /// Format `0bxxxxxrgb`
+    pub fn raw(&self) -> u8 {
+        match self {
+            Self::BLACK => 0b000,
+            Self::BLUE => 0b001,
+            Self::CYAN => 0b011,
+            Self::GREEN => 0b010,
+            Self::MAGENTA => 0b101,
+            Self::RED => 0b100,
+            Self::WHITE => 0b111,
+            Self::YELLOW => 0b110,
+        }
     }
+}
+impl IntoStorage for Rgb111 {
+    type Storage = u8;
+    fn into_storage(self) -> Self::Storage {
+        self.raw()
+    }
+}
+impl PixelColor for Rgb111 {
+    type Raw = ();
+}
+impl RgbColor for Rgb111 {
+    const MAX_R: u8 = 1;
+    const MAX_G: u8 = 1;
+    const MAX_B: u8 = 1;
+    const BLACK: Self = Self::BLACK;
+    const RED: Self = Self::RED;
+    const GREEN: Self = Self::GREEN;
+    const BLUE: Self = Self::BLUE;
+    const YELLOW: Self = Self::YELLOW;
+    const MAGENTA: Self = Self::MAGENTA;
+    const CYAN: Self = Self::CYAN;
+    const WHITE: Self = Self::WHITE;
+    fn r(&self) -> u8 {
+        match self {
+            Self::RED | Self::YELLOW | Self::MAGENTA | Self::WHITE => 1,
+            _ => 0,
+        }
+    }
+    fn g(&self) -> u8 {
+        match self {
+            Self::GREEN | Self::YELLOW | Self::CYAN | Self::WHITE => 1,
+            _ => 0,
+        }
+    }
+    fn b(&self) -> u8 {
+        match self {
+            Self::BLUE | Self::MAGENTA | Self::CYAN | Self::WHITE => 1,
+            _ => 0,
+        }
+    }
+}
+
+/// Trait implementation for writing different pixel formats to the ili9488's memory
+pub trait Ili9488MemoryWrite {
+    type PixelFormat: RgbColor;
+    fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result;
+    fn write_slice(&mut self, data: &[Self::PixelFormat]) -> Result;
 }
 
 /// For quite a few boards (ESP32-S2-Kaluga-1, M5Stack, M5Core2 and others),
@@ -138,7 +214,7 @@ pub enum ModeState {
 /// - As soon as a pixel is received, an internal counter is incremented,
 ///   and the next word will fill the next pixel (the adjacent on the right, or
 ///   the first of the next row if the row ended)
-pub struct Ili9488<IFACE, RESET, PixelFormat: Ili9488PixelFormat> {
+pub struct Ili9488<IFACE, RESET, PixelFormat> {
     interface: IFACE,
     reset: RESET,
     width: usize,
@@ -230,7 +306,7 @@ where
 
         ili9488.command(Command::MemoryAccessControl, &[0x48])?; // MX, BGR
 
-        ili9488.command(Command::PixelFormatSet, &[pixel_format.to_data()])?;
+        ili9488.command(Command::PixelFormatSet, &[PixelFormat::DATA])?;
 
         ili9488.command(Command::InterfaceModeControl, &[0x00])?;
 
@@ -250,50 +326,6 @@ where
 
         ili9488.display_mode(ModeState::On)?;
 
-        // 18 bits per pixel -> 3 bytes per pixel
-        // let color = core::iter::repeat([0xffu8, 0x00u8, 0x00u8]).take(SIZE::WIDTH * SIZE::HEIGHT);
-        let rgb333_colors = [
-            [0xffu8, 0x00u8, 0x00u8],
-            [0xffu8, 0xffu8, 0x00u8],
-            [0x00u8, 0xffu8, 0x00u8],
-            [0x00u8, 0xffu8, 0xffu8],
-            [0x00u8, 0x00u8, 0xffu8],
-            [0xffu8, 0x00u8, 0xffu8],
-            [0xffu8, 0xffu8, 0xffu8],
-        ];
-        let rgb111_colors = [
-            0b00100100, 0b00110110, 0b00010010, 0b00011011, 0b00001001, 0b00101101,
-        ];
-        let mut i = 0usize;
-        ili9488.set_window(0, 0, ili9488.width() as u16, ili9488.height() as u16)?;
-        loop {
-            let mut div = 1;
-            if (i % 2) == 0 {
-                ili9488.command(Command::PixelFormatSet, &[0x61])?; // 3 bpp
-                div = 2;
-            } else {
-                ili9488.command(Command::PixelFormatSet, &[0x66])?; // 18 bpp
-            }
-
-            // ili9488.command(Command::PixelFormatSet, &[0x66])?; // 18 bpp
-            ili9488.command(Command::MemoryWrite, &[])?;
-            for _ in 0..(ili9488.width() * ili9488.height() / div) {
-                if (i % 2) == 0 {
-                    ili9488
-                        .interface
-                        // .send_data(DataFormat::U8(&rgb333_colors[i % rgb333_colors.len()]))?;
-                        .send_data(DataFormat::U8(&[rgb111_colors[i % rgb111_colors.len()]]))?;
-                } else {
-                    ili9488
-                        .interface
-                        .send_data(DataFormat::U8(&rgb333_colors[i % rgb333_colors.len()]))?;
-                    // .send_data(DataFormat::U8(&[rgb111_colors[i % rgb111_colors.len()]]))?;
-                }
-            }
-            delay.delay_ms(1000);
-            i += 1;
-        }
-
         Ok(ili9488)
     }
 }
@@ -303,34 +335,24 @@ where
     IFACE: WriteOnlyDataCommand,
     PixelFormat: Ili9488PixelFormat,
 {
-    fn set_pixel_format<P: Ili9488PixelFormat>(
+    pub fn set_pixel_format<P: Ili9488PixelFormat>(
         mut self,
         pixel_format: P,
     ) -> Result<Ili9488<IFACE, RESET, P>> {
-        self.command(Command::PixelFormatSet, &[pixel_format.to_data()])?;
+        self.command(Command::PixelFormatSet, &[P::DATA])?;
+
         Ok(Ili9488 {
             interface: self.interface,
             reset: self.reset,
             width: DisplaySize320x480::WIDTH,
             height: DisplaySize320x480::HEIGHT,
-            landscape: false,
+            landscape: self.landscape,
             _pixel_format: pixel_format,
         })
     }
     fn command(&mut self, cmd: Command, args: &[u8]) -> Result {
         self.interface.send_commands(DataFormat::U8(&[cmd as u8]))?;
         self.interface.send_data(DataFormat::U8(args))
-    }
-
-    fn write_iter<I: IntoIterator<Item = u16>>(&mut self, data: I) -> Result {
-        self.command(Command::MemoryWrite, &[])?;
-        use DataFormat::U16BEIter;
-        self.interface.send_data(U16BEIter(&mut data.into_iter()))
-    }
-
-    fn write_slice(&mut self, data: &[u16]) -> Result {
-        self.command(Command::MemoryWrite, &[])?;
-        self.interface.send_data(DataFormat::U16(data))
     }
 
     fn set_window(&mut self, x0: u16, y0: u16, x1: u16, y1: u16) -> Result {
@@ -398,41 +420,6 @@ where
         )
     }
 
-    /// Draw a rectangle on the screen, represented by top-left corner (x0, y0)
-    /// and bottom-right corner (x1, y1).
-    ///
-    /// The border is included.
-    ///
-    /// This method accepts an iterator of rgb565 pixel values.
-    ///
-    /// The iterator is useful to avoid wasting memory by holding a buffer for
-    /// the whole screen when it is not necessary.
-    pub fn draw_raw_iter<I: IntoIterator<Item = u16>>(
-        &mut self,
-        x0: u16,
-        y0: u16,
-        x1: u16,
-        y1: u16,
-        data: I,
-    ) -> Result {
-        self.set_window(x0, y0, x1, y1)?;
-        self.write_iter(data)
-    }
-
-    /// Draw a rectangle on the screen, represented by top-left corner (x0, y0)
-    /// and bottom-right corner (x1, y1).
-    ///
-    /// The border is included.
-    ///
-    /// This method accepts a raw buffer of words that will be copied to the screen
-    /// video memory.
-    ///
-    /// The expected format is rgb565.
-    pub fn draw_raw_slice(&mut self, x0: u16, y0: u16, x1: u16, y1: u16, data: &[u16]) -> Result {
-        self.set_window(x0, y0, x1, y1)?;
-        self.write_slice(data)
-    }
-
     /// Change the orientation of the screen
     pub fn set_orientation<MODE>(&mut self, orientation: MODE) -> Result
     where
@@ -445,12 +432,6 @@ where
         }
         self.landscape = orientation.is_landscape();
         Ok(())
-    }
-
-    /// Fill entire screen with specfied color u16 value
-    pub fn clear_screen(&mut self, color: u16) -> Result {
-        let color = core::iter::repeat(color).take(self.width * self.height);
-        self.draw_raw_iter(0, 0, self.width as u16, self.height as u16, color)
     }
 
     /// Control the screen sleep mode:
@@ -517,16 +498,107 @@ where
     }
 }
 
-// Implement draw functions for rgb666 pixels
-impl<IFACE, RESET> Ili9488<IFACE, RESET, Rgb666Mode> {}
+impl<IFACE, RESET> Ili9488MemoryWrite for Ili9488<IFACE, RESET, Rgb666Mode>
+where
+    IFACE: WriteOnlyDataCommand,
+{
+    type PixelFormat = Rgb666;
 
-// Implement draw functions for rgb111 pixels
-impl<IFACE, RESET> Ili9488<IFACE, RESET, Rgb111Mode> {}
+    fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        for color in data {
+            self.interface.send_data(DataFormat::U8(&[
+                color.r() << 2,
+                color.g() << 2,
+                color.b() << 2,
+            ]))?;
+        }
+        Ok(())
+    }
+    fn write_slice(&mut self, data: &[Self::PixelFormat]) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        for color in data {
+            self.interface.send_data(DataFormat::U8(&[
+                color.r() << 2,
+                color.g() << 2,
+                color.b() << 2,
+            ]))?;
+        }
+        Ok(())
+    }
+}
 
 impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
 where
+    Self: Ili9488MemoryWrite,
+    IFACE: WriteOnlyDataCommand,
     PixelFormat: Ili9488PixelFormat,
 {
+    pub fn draw_raw_iter<
+        I: IntoIterator<
+            Item = <Ili9488<IFACE, RESET, PixelFormat> as Ili9488MemoryWrite>::PixelFormat,
+        >,
+    >(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        x1: u16,
+        y1: u16,
+        data: I,
+    ) -> Result {
+        self.set_window(x0, y0, x1, y1)?;
+        self.write_iter(data)
+    }
+    /// Draw a rectangle on the screen, represented by top-left corner (x0, y0)
+    /// and bottom-right corner (x1, y1).
+    ///
+    /// The border is included.
+    ///
+    /// This method accepts a raw buffer of words that will be copied to the screen
+    /// video memory.
+    pub fn draw_raw_slice(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        x1: u16,
+        y1: u16,
+        data: &[<Ili9488<IFACE, RESET, PixelFormat> as Ili9488MemoryWrite>::PixelFormat],
+    ) -> Result {
+        self.set_window(x0, y0, x1, y1)?;
+        self.write_slice(data)
+    }
+    /// Fill entire screen with specfied color
+    pub fn clear_screen(
+        &mut self,
+        color: <Ili9488<IFACE, RESET, PixelFormat> as Ili9488MemoryWrite>::PixelFormat,
+    ) -> Result {
+        let color = core::iter::repeat(color).take(self.width * self.height);
+        self.draw_raw_iter(0, 0, self.width as u16, self.height as u16, color)
+    }
+    /// Fill entire screen using 3 bits per pixel (bpp)
+    pub fn clear_screen_fast(&mut self, color: Rgb111) -> Result {
+        // Switch pixel format to 3 bpp
+        if PixelFormat::DATA != Rgb111Mode::DATA {
+            self.command(Command::PixelFormatSet, &[Rgb111Mode::DATA])?;
+        }
+
+        // Clear the screen with 3 bpp
+        let color = (color.into_storage() << 3) | color.into_storage();
+        let mut data = core::iter::repeat(color).take(self.width * self.height / 2);
+        self.set_window(0, 0, self.width as u16, self.height as u16)?;
+        self.command(Command::MemoryWrite, &[])?;
+        self.interface.send_data(DataFormat::U8Iter(&mut data))?;
+
+        // Switch back to original pixel format
+        if PixelFormat::DATA != Rgb111Mode::DATA {
+            self.command(Command::PixelFormatSet, &[PixelFormat::DATA])
+        } else {
+            Ok(())
+        }
+    }
+}
+
+impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat> {
     /// Get the current screen width. It can change based on the current orientation
     pub fn width(&self) -> usize {
         self.width
@@ -602,8 +674,6 @@ pub enum FrameRateClockDivision {
 enum Command {
     NOP = 0x00,
     SoftwareReset = 0x01,
-    MemoryAccessControl = 0x36,
-    PixelFormatSet = 0x3a,
     SleepModeOn = 0x10,
     SleepModeOff = 0x11,
     InvertOff = 0x20,
@@ -614,9 +684,11 @@ enum Command {
     PageAddressSet = 0x2b,
     MemoryWrite = 0x2c,
     VerticalScrollDefine = 0x33,
+    MemoryAccessControl = 0x36,
     VerticalScrollAddr = 0x37,
     IdleModeOff = 0x38,
     IdleModeOn = 0x39,
+    PixelFormatSet = 0x3a,
     SetBrightness = 0x51,
     ContentAdaptiveBrightness = 0x55,
     InterfaceModeControl = 0xb0,
