@@ -33,7 +33,7 @@ use display_interface::{DataFormat, WriteOnlyDataCommand};
 use embedded_graphics_core::pixelcolor::{IntoStorage, PixelColor, Rgb666};
 use embedded_graphics_core::prelude::RgbColor;
 
-// mod graphics_core;
+mod graphics_core;
 
 pub use embedded_hal::spi::MODE_0 as SPI_MODE;
 
@@ -527,6 +527,30 @@ where
         Ok(())
     }
 }
+impl<IFACE, RESET> Ili9488MemoryWrite for Ili9488<IFACE, RESET, Rgb111Mode>
+where
+    IFACE: WriteOnlyDataCommand,
+{
+    type PixelFormat = Rgb111;
+    // TODO: Properly Implement this
+
+    fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        for color in data {
+            self.interface
+                .send_data(DataFormat::U8(&[color.into_storage() << 3]))?;
+        }
+        Ok(())
+    }
+    fn write_slice(&mut self, data: &[Self::PixelFormat]) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        for color in data {
+            self.interface
+                .send_data(DataFormat::U8(&[color.into_storage() << 3]))?;
+        }
+        Ok(())
+    }
+}
 
 impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
 where
@@ -585,6 +609,7 @@ where
         // Clear the screen with 3 bpp
         let color = (color.into_storage() << 3) | color.into_storage();
         let mut data = core::iter::repeat(color).take(self.width * self.height / 2);
+
         self.set_window(0, 0, self.width as u16, self.height as u16)?;
         self.command(Command::MemoryWrite, &[])?;
         self.interface.send_data(DataFormat::U8Iter(&mut data))?;

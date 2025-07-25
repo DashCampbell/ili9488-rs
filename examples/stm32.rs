@@ -5,11 +5,12 @@ use defmt::*;
 use display_interface::WriteOnlyDataCommand;
 use display_interface_spi::SPIInterface;
 use embassy_executor::Spawner;
-use embassy_stm32::gpio::{Level, Output};
-use embassy_stm32::spi::{self, Spi};
+use embassy_stm32::gpio::{Level, Output, Pull, Speed};
+use embassy_stm32::spi::{self, Mode, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use embassy_time::{Delay, Timer};
+use embedded_graphics::mono_font::iso_8859_14::FONT_10X20;
 use embedded_graphics::pixelcolor::raw::ToBytes;
 use embedded_hal::spi::SpiDevice;
 use embedded_hal_bus::spi::{ExclusiveDevice, NoDelay};
@@ -54,6 +55,8 @@ async fn main(_spawner: Spawner) {
 
     let mut spi_config = spi::Config::default();
     spi_config.frequency = Hertz::mhz(40);
+    spi_config.miso_pull = Pull::Up;
+    spi_config.rise_fall_speed = Speed::VeryHigh;
 
     let peri = p.SPI3;
     let sclk = p.PB3;
@@ -91,8 +94,21 @@ async fn main(_spawner: Spawner) {
     info!("Done");
 
     info!("Clearing Screen Again...");
-    display.clear_screen_fast(Rgb111::RED).unwrap();
+    display.clear_screen_fast(Rgb111::WHITE).unwrap();
     info!("Done");
+
+    // Embedded graphics stuff
+    let thin_stroke = PrimitiveStyle::with_stroke(Rgb666::BLACK, 1);
+    let character_style = MonoTextStyle::new(&FONT_10X20, Rgb666::BLACK);
+    let text = "embedded-graphics";
+    Text::with_alignment(
+        text,
+        display.bounding_box().center() + Point::new(0, 15),
+        character_style,
+        Alignment::Center,
+    )
+    .draw(&mut display)
+    .unwrap();
 
     // let mut read_byte = [0u8; 2];
     // let mut read = [0u8; 3 * 10];

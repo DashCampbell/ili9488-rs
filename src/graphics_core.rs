@@ -1,23 +1,19 @@
-use crate::Ili9488;
-use embedded_graphics_core::{
-    pixelcolor::{raw::RawU16, Rgb565},
-    prelude::*,
-    primitives::Rectangle,
-};
+use crate::{Ili9488, Rgb111, Rgb111Mode, Rgb666Mode};
+use embedded_graphics_core::{pixelcolor::Rgb666, prelude::*, primitives::Rectangle};
 
-impl<IFACE, RESET> OriginDimensions for Ili9488<IFACE, RESET> {
+impl<IFACE, RESET, PixelFormat> OriginDimensions for Ili9488<IFACE, RESET, PixelFormat> {
     fn size(&self) -> Size {
         Size::new(self.width() as u32, self.height() as u32)
     }
 }
 
-impl<IFACE, RESET> DrawTarget for Ili9488<IFACE, RESET>
+impl<IFACE, RESET> DrawTarget for Ili9488<IFACE, RESET, Rgb666Mode>
 where
     IFACE: display_interface::WriteOnlyDataCommand,
 {
     type Error = display_interface::DisplayError;
 
-    type Color = Rgb565;
+    type Color = Rgb666;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
@@ -27,7 +23,6 @@ where
             if self.bounding_box().contains(point) {
                 let x = point.x as u16;
                 let y = point.y as u16;
-                let color = RawU16::from(color).into_inner();
                 self.draw_raw_slice(x, y, x, y, &[color])?;
             }
         }
@@ -53,9 +48,7 @@ where
                     y0,
                     x1,
                     y1,
-                    area.points()
-                        .zip(colors)
-                        .map(|(_, color)| RawU16::from(color).into_inner()),
+                    area.points().zip(colors).map(|(_, color)| color),
                 )
             } else {
                 // Some pixels are on screen
@@ -67,7 +60,7 @@ where
                     area.points()
                         .zip(colors)
                         .filter(|(point, _)| drawable_area.contains(*point))
-                        .map(|(_, color)| RawU16::from(color).into_inner()),
+                        .map(|(_, color)| color),
                 )
             }
         } else {
@@ -77,6 +70,6 @@ where
     }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
-        self.clear_screen(RawU16::from(color).into_inner())
+        self.clear_screen(color)
     }
 }
