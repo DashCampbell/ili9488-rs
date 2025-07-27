@@ -30,13 +30,12 @@ use embedded_hal::digital::OutputPin;
 
 use display_interface::{DataFormat, WriteOnlyDataCommand};
 
-use embedded_graphics_core::pixelcolor::{IntoStorage, PixelColor, Rgb666};
+use embedded_graphics_core::pixelcolor::{IntoStorage, Rgb565, Rgb666};
 use embedded_graphics_core::prelude::RgbColor;
 
 mod graphics_core;
-
-pub use embedded_hal::spi::MODE_0 as SPI_MODE;
-
+mod rgb111;
+pub use crate::rgb111::*;
 pub use display_interface::DisplayError;
 
 type Result<T = (), E = DisplayError> = core::result::Result<T, E>;
@@ -76,74 +75,6 @@ impl Ili9488PixelFormat for Rgb111Mode {
 pub struct Rgb666Mode;
 impl Ili9488PixelFormat for Rgb666Mode {
     const DATA: u8 = 0x66;
-}
-
-#[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
-pub enum Rgb111 {
-    BLACK,
-    RED,
-    GREEN,
-    BLUE,
-    YELLOW,
-    MAGENTA,
-    CYAN,
-    WHITE,
-}
-impl Rgb111 {
-    /// Returns the color in binary form.
-    /// Format `0bxxxxxrgb`
-    pub fn raw(&self) -> u8 {
-        match self {
-            Self::BLACK => 0b000,
-            Self::BLUE => 0b001,
-            Self::CYAN => 0b011,
-            Self::GREEN => 0b010,
-            Self::MAGENTA => 0b101,
-            Self::RED => 0b100,
-            Self::WHITE => 0b111,
-            Self::YELLOW => 0b110,
-        }
-    }
-}
-impl IntoStorage for Rgb111 {
-    type Storage = u8;
-    fn into_storage(self) -> Self::Storage {
-        self.raw()
-    }
-}
-impl PixelColor for Rgb111 {
-    type Raw = ();
-}
-impl RgbColor for Rgb111 {
-    const MAX_R: u8 = 1;
-    const MAX_G: u8 = 1;
-    const MAX_B: u8 = 1;
-    const BLACK: Self = Self::BLACK;
-    const RED: Self = Self::RED;
-    const GREEN: Self = Self::GREEN;
-    const BLUE: Self = Self::BLUE;
-    const YELLOW: Self = Self::YELLOW;
-    const MAGENTA: Self = Self::MAGENTA;
-    const CYAN: Self = Self::CYAN;
-    const WHITE: Self = Self::WHITE;
-    fn r(&self) -> u8 {
-        match self {
-            Self::RED | Self::YELLOW | Self::MAGENTA | Self::WHITE => 1,
-            _ => 0,
-        }
-    }
-    fn g(&self) -> u8 {
-        match self {
-            Self::GREEN | Self::YELLOW | Self::CYAN | Self::WHITE => 1,
-            _ => 0,
-        }
-    }
-    fn b(&self) -> u8 {
-        match self {
-            Self::BLUE | Self::MAGENTA | Self::CYAN | Self::WHITE => 1,
-            _ => 0,
-        }
-    }
 }
 
 /// Trait implementation for writing different pixel formats to the ili9488's memory
@@ -335,7 +266,7 @@ where
     IFACE: WriteOnlyDataCommand,
     PixelFormat: Ili9488PixelFormat,
 {
-    pub fn set_pixel_format<P: Ili9488PixelFormat>(
+    pub fn change_pixel_format<P: Ili9488PixelFormat>(
         mut self,
         pixel_format: P,
     ) -> Result<Ili9488<IFACE, RESET, P>> {
@@ -344,8 +275,8 @@ where
         Ok(Ili9488 {
             interface: self.interface,
             reset: self.reset,
-            width: DisplaySize320x480::WIDTH,
-            height: DisplaySize320x480::HEIGHT,
+            width: self.width,
+            height: self.height,
             landscape: self.landscape,
             _pixel_format: pixel_format,
         })
@@ -532,26 +463,53 @@ where
     IFACE: WriteOnlyDataCommand,
 {
     type PixelFormat = Rgb111;
-    // TODO: Properly Implement this
-
+    // TODO: Fix implementations
     fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result {
         self.command(Command::MemoryWrite, &[])?;
-        for color in data {
+
+        let mut data = data.into_iter();
+        while let Some(p1) = data.next() {
             self.interface
-                .send_data(DataFormat::U8(&[color.into_storage() << 3]))?;
+                .send_data(DataFormat::U8(&[(p1.into_storage() << 3)
+                    | (data.next().map(|p| p.into_storage()).unwrap_or_default())]))?;
         }
         Ok(())
     }
     fn write_slice(&mut self, data: &[Self::PixelFormat]) -> Result {
         self.command(Command::MemoryWrite, &[])?;
-        for color in data {
-            self.interface
-                .send_data(DataFormat::U8(&[color.into_storage() << 3]))?;
-        }
+        self.interface
+            .send_data(DataFormat::U8Iter(&mut data.chunks(2).map(|pixels| {
+                (pixels[0].raw() << 3) | pixels.get(1).map(|p| p.into_storage()).unwrap_or_default()
+            })))?;
         Ok(())
     }
 }
 
+impl<IFACE, RESET> Ili9488<IFACE, RESET, Rgb666Mode>
+where
+    IFACE: WriteOnlyDataCommand,
+{
+    /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
+    /// `data` should be a slice of u16 values in RGB565 format.
+    /// The rectangle is defined by (x0, y0) to (x1, y1) inclusive.
+    pub fn draw_rgb565_image(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        width: u16,
+        height: u16,
+        data: &[u16],
+    ) -> Result {
+        self.set_window(x0, y0, x0 + width, y0 + height)?;
+        self.write_iter(data.iter().map(|col| {
+            Rgb666::from(Rgb565::new(
+                ((col & (0b11111 << 11)) >> 11) as u8,
+                ((col & (0b111111 << 5)) >> 5) as u8,
+                (col & 0b11111) as u8,
+            ))
+        }))
+    }
+}
 impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
 where
     Self: Ili9488MemoryWrite,
@@ -599,7 +557,7 @@ where
         let color = core::iter::repeat(color).take(self.width * self.height);
         self.draw_raw_iter(0, 0, self.width as u16, self.height as u16, color)
     }
-    /// Fill entire screen using 3 bits per pixel (bpp)
+    /// Fast way to fill entire screen, only uses 3 bits per pixel (bpp)
     pub fn clear_screen_fast(&mut self, color: Rgb111) -> Result {
         // Switch pixel format to 3 bpp
         if PixelFormat::DATA != Rgb111Mode::DATA {

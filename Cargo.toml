@@ -9,7 +9,7 @@ categories = ["embedded", "hardware-support", "no-std"]
 keywords = ["embedded-hal-driver", "display", "LCD"]
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/DashCampbell/ili9488-rs"
-edition = "2018"
+edition = "2021"
 
 
 [dependencies]
@@ -47,6 +47,11 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 display-interface-spi = { version = "0.5" }
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
+tinybmp = "0.6.0"
 
-[[example]]
-name = "stm32"
+
+[profile.release]
+debug = 2
+codegen-units = 1
+lto = "fat"
+opt-level = 'z'
