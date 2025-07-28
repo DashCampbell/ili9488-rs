@@ -492,15 +492,13 @@ where
     /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
     /// `data` should be a slice of u16 values in RGB565 format.
     /// The rectangle is defined by (x0, y0) to (x1, y1) inclusive.
-    pub fn draw_rgb565_image(
-        &mut self,
-        x0: u16,
-        y0: u16,
-        width: u16,
-        height: u16,
-        data: &[u16],
-    ) -> Result {
-        self.set_window(x0, y0, x0 + width, y0 + height)?;
+    pub fn draw_rgb565_image(&mut self, x0: u16, y0: u16, width: u16, data: &[u16]) -> Result {
+        self.set_window(
+            x0,
+            y0,
+            x0 + width - 1,
+            y0 + (data.len() / width as usize) as u16 - 1,
+        )?;
         self.write_iter(data.iter().map(|col| {
             Rgb666::from(Rgb565::new(
                 ((col & (0b11111 << 11)) >> 11) as u8,
