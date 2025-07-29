@@ -23,7 +23,6 @@ embassy-stm32 = { version = "0.2.0", features = [
     "stm32l432kc",
     "time-driver-any",
     "exti",
-    "memory-x",        # the built in memory-x file may not be accurate for some microcontrollers
 ] }
 embedded-hal = "1.0.0"
 embedded-hal-bus = "0.3"
@@ -32,7 +31,7 @@ embassy-executor = { version = "0.7.0", features = [
     "arch-cortex-m",
     "executor-thread",
     "defmt",
-    "task-arena-size-8192",
+    "task-arena-size-16384",
 ] }
 embassy-time = { version = "0.4.0", features = [
     "defmt",
