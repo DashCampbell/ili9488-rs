@@ -463,7 +463,7 @@ where
     IFACE: WriteOnlyDataCommand,
 {
     type PixelFormat = Rgb111;
-    // TODO: Fix implementations
+    // TODO: Fix implementations for embedded graphics
     fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result {
         self.command(Command::MemoryWrite, &[])?;
 
@@ -704,7 +704,7 @@ enum Command {
     IdleModeOff = 0x38,
     IdleModeOn = 0x39,
     PixelFormatSet = 0x3a,
-    MemoryWriteContinue = 0x3c,
+    // MemoryWriteContinue = 0x3c,
     SetBrightness = 0x51,
     ContentAdaptiveBrightness = 0x55,
     InterfaceModeControl = 0xb0,
