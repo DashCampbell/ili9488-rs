@@ -30,7 +30,7 @@ use embedded_hal::digital::OutputPin;
 
 use display_interface::{DataFormat, WriteOnlyDataCommand};
 
-use embedded_graphics_core::pixelcolor::{IntoStorage, Rgb565, Rgb666};
+use embedded_graphics_core::pixelcolor::{IntoStorage, Rgb666};
 use embedded_graphics_core::prelude::RgbColor;
 
 mod graphics_core;
@@ -491,7 +491,6 @@ where
 {
     /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
     /// `data` should be a slice of u16 values in RGB565 format.
-    /// The rectangle is defined by (x0, y0) to (x1, y1) inclusive.
     pub fn draw_rgb565_image(&mut self, x0: u16, y0: u16, width: u16, data: &[u16]) -> Result {
         self.set_window(
             x0,
@@ -499,13 +498,48 @@ where
             x0 + width - 1,
             y0 + (data.len() / width as usize) as u16 - 1,
         )?;
-        self.write_iter(data.iter().map(|col| {
-            Rgb666::from(Rgb565::new(
-                ((col & (0b11111 << 11)) >> 11) as u8,
-                ((col & (0b111111 << 5)) >> 5) as u8,
-                (col & 0b11111) as u8,
-            ))
+        self.write_iter(data.iter().map(|c| {
+            Rgb666::new(
+                ((c & 0xF800) >> 10) as u8,
+                ((c & 0x07E0) >> 5) as u8,
+                (c & 0x001F << 1) as u8,
+            )
         }))
+    }
+    /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
+    /// `data` - A slice of u16 values in RGB565 format.
+    /// `original_width` - The original image width
+    /// `screen_width` - The image width on the screen
+    pub fn draw_enlarged_rgb565_image(
+        &mut self,
+        x0: u16,
+        y0: u16,
+        original_width: u16,
+        screen_width: u16,
+        data: &[u16],
+    ) -> Result {
+        let ratio = screen_width / original_width;
+        let screen_height = (data.len() / original_width as usize) as u16 * ratio;
+        self.set_window(x0, y0, x0 + screen_width - 1, y0 + screen_height - 1)?;
+        self.command(Command::MemoryWrite, &[])?;
+        // For each horizontal line
+        //  For each pixel, repeat it ratio times
+        //  Repeat expanded horizontal line ratio times
+        for line in data.chunks_exact(original_width as usize) {
+            for _ in 0..ratio {
+                for pixel in line {
+                    for _ in 0..ratio {
+                        // Convert rgb565 to rgb666
+                        self.interface.send_data(DataFormat::U8(&[
+                            ((pixel & 0xF800) >> 8) as u8,
+                            ((pixel & 0x07E0) >> 3) as u8,
+                            (pixel & 0x001F << 3) as u8,
+                        ]))?;
+                    }
+                }
+            }
+        }
+        Ok(())
     }
 }
 impl<IFACE, RESET, PixelFormat> Ili9488<IFACE, RESET, PixelFormat>
@@ -670,6 +704,7 @@ enum Command {
     IdleModeOff = 0x38,
     IdleModeOn = 0x39,
     PixelFormatSet = 0x3a,
+    MemoryWriteContinue = 0x3c,
     SetBrightness = 0x51,
     ContentAdaptiveBrightness = 0x55,
     InterfaceModeControl = 0xb0,

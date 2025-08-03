@@ -488,10 +488,12 @@ async fn main(_spawner: Spawner) {
     loop {
         let start = Instant::now().as_millis();
         display
-            .draw_rgb565_image(50, 50, 34, frames[i % frames.len()])
+            .draw_enlarged_rgb565_image(150, 120, 34, 34 * 3, frames[i % frames.len()])
+            // .draw_rgb565_image(50, 50, 34, frames[i % frames.len()])
             .unwrap();
         let end = Instant::now().as_millis();
-        info!("render time: {}", end - start);
+        info!("render time: {} ms", end - start);
+        info!("fps: {}", 1000 / (end - start));
 
         Timer::after_millis(100).await;
         i += 1;
