@@ -30,7 +30,7 @@ use embedded_hal::digital::OutputPin;
 
 use display_interface::{DataFormat, WriteOnlyDataCommand};
 
-use embedded_graphics_core::pixelcolor::{IntoStorage, Rgb666};
+use embedded_graphics_core::pixelcolor::{IntoStorage, Rgb565, Rgb666};
 use embedded_graphics_core::prelude::RgbColor;
 
 mod graphics_core;
@@ -69,6 +69,13 @@ pub struct Rgb111Mode;
 
 impl Ili9488PixelFormat for Rgb111Mode {
     const DATA: u8 = 0x1;
+}
+/// 3 bpp
+#[derive(Copy, Clone)]
+pub struct Rgb565Mode;
+
+impl Ili9488PixelFormat for Rgb565Mode {
+    const DATA: u8 = 0x55;
 }
 /// 18 bpp
 #[derive(Copy, Clone)]
@@ -456,6 +463,25 @@ where
             ]))?;
         }
         Ok(())
+    }
+}
+impl<IFACE, RESET> Ili9488MemoryWrite for Ili9488<IFACE, RESET, Rgb565Mode>
+where
+    IFACE: WriteOnlyDataCommand,
+{
+    type PixelFormat = Rgb565;
+
+    fn write_iter<I: IntoIterator<Item = Self::PixelFormat>>(&mut self, data: I) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        use DataFormat::U16BEIter;
+        self.interface
+            .send_data(U16BEIter(&mut data.into_iter().map(|c| c.into_storage())))
+    }
+    fn write_slice(&mut self, data: &[Self::PixelFormat]) -> Result {
+        self.command(Command::MemoryWrite, &[])?;
+        self.interface.send_data(DataFormat::U16BEIter(
+            &mut data.into_iter().map(|c| c.into_storage()),
+        ))
     }
 }
 impl<IFACE, RESET> Ili9488MemoryWrite for Ili9488<IFACE, RESET, Rgb111Mode>

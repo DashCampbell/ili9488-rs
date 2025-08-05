@@ -1,5 +1,9 @@
-use crate::{Ili9488, Rgb666Mode};
-use embedded_graphics_core::{pixelcolor::Rgb666, prelude::*, primitives::Rectangle};
+use crate::{Ili9488, Rgb565Mode, Rgb666Mode};
+use embedded_graphics_core::{
+    pixelcolor::{Rgb565, Rgb666},
+    prelude::*,
+    primitives::Rectangle,
+};
 
 impl<IFACE, RESET, PixelFormat> OriginDimensions for Ili9488<IFACE, RESET, PixelFormat> {
     fn size(&self) -> Size {
@@ -14,6 +18,73 @@ where
     type Error = display_interface::DisplayError;
 
     type Color = Rgb666;
+
+    fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Pixel<Self::Color>>,
+    {
+        for Pixel(point, color) in pixels {
+            if self.bounding_box().contains(point) {
+                let x = point.x as u16;
+                let y = point.y as u16;
+                self.draw_raw_slice(x, y, x, y, &[color])?;
+            }
+        }
+        Ok(())
+    }
+
+    fn fill_contiguous<I>(&mut self, area: &Rectangle, colors: I) -> Result<(), Self::Error>
+    where
+        I: IntoIterator<Item = Self::Color>,
+    {
+        let drawable_area = area.intersection(&self.bounding_box());
+
+        if let Some(drawable_bottom_right) = drawable_area.bottom_right() {
+            let x0 = drawable_area.top_left.x as u16;
+            let y0 = drawable_area.top_left.y as u16;
+            let x1 = drawable_bottom_right.x as u16;
+            let y1 = drawable_bottom_right.y as u16;
+
+            if area == &drawable_area {
+                // All pixels are on screen
+                self.draw_raw_iter(
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    area.points().zip(colors).map(|(_, color)| color),
+                )
+            } else {
+                // Some pixels are on screen
+                self.draw_raw_iter(
+                    x0,
+                    y0,
+                    x1,
+                    y1,
+                    area.points()
+                        .zip(colors)
+                        .filter(|(point, _)| drawable_area.contains(*point))
+                        .map(|(_, color)| color),
+                )
+            }
+        } else {
+            // No pixels are on screen
+            Ok(())
+        }
+    }
+
+    fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
+        self.clear_screen(color)
+    }
+}
+
+impl<IFACE, RESET> DrawTarget for Ili9488<IFACE, RESET, Rgb565Mode>
+where
+    IFACE: display_interface::WriteOnlyDataCommand,
+{
+    type Error = display_interface::DisplayError;
+
+    type Color = Rgb565;
 
     fn draw_iter<I>(&mut self, pixels: I) -> Result<(), Self::Error>
     where
