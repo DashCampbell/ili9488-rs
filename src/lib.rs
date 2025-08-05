@@ -510,7 +510,7 @@ where
     /// `data` - A slice of u16 values in RGB565 format.
     /// `original_width` - The original image width
     /// `screen_width` - The image width on the screen
-    pub fn draw_enlarged_rgb565_image(
+    pub fn draw_upscaled_rgb565_image(
         &mut self,
         x0: u16,
         y0: u16,

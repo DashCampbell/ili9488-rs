@@ -1,24 +1,28 @@
 #![no_std]
 #![no_main]
 
-use cortex_m_rt::entry;
 use defmt::*;
 use display_interface_spi::SPIInterface;
+use embassy_executor::Spawner;
 use embassy_stm32::gpio::{Level, Output, Pull, Speed};
 use embassy_stm32::spi::{self, Spi};
 use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
-use embassy_time::{Delay, Instant};
+use embassy_time::{Delay, Instant, Timer};
 use embedded_hal_bus::spi::ExclusiveDevice;
 use {defmt_rtt as _, panic_probe as _};
 
-use embedded_graphics::pixelcolor::{Rgb666, RgbColor};
+use embedded_graphics::{
+    mono_font::MonoTextStyle,
+    pixelcolor::{Rgb666, RgbColor},
+    prelude::*,
+    text::{Alignment, Text},
+};
 
-use ili9488_rs::{Ili9488, Orientation, Rgb111, Rgb111Mode, Rgb666Mode};
+use ili9488_rs::{Ili9488, Orientation, Rgb111, Rgb666Mode};
 
-// #[embassy_executor::main]
-#[entry]
-fn main() -> ! {
+#[embassy_executor::main]
+async fn main(_spawner: Spawner) {
     let mut config = Config::default();
     {
         // Configure the system clock to be 80 MHz
@@ -44,8 +48,9 @@ fn main() -> ! {
     let peri = p.SPI3;
     let sclk = p.PB3;
     let mosi = p.PB5;
+    let miso = p.PB4;
 
-    let spi = Spi::new_blocking_txonly(peri, sclk, mosi, spi_config);
+    let spi = Spi::new_blocking(peri, sclk, mosi, miso, spi_config);
     let cs = Output::new(p.PA0, Level::High, embassy_stm32::gpio::Speed::VeryHigh);
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
     let dc = Output::new(p.PA1, Level::Low, embassy_stm32::gpio::Speed::VeryHigh);
@@ -65,25 +70,38 @@ fn main() -> ! {
     .unwrap();
     info!("Done");
 
-    info!("Time taken to do a full screen clear:");
+    let style = MonoTextStyle::new(&profont::PROFONT_24_POINT, Rgb666::WHITE);
 
     // Render
-    let start = Instant::now().as_millis();
-    display.clear_screen(Rgb666::RED).unwrap();
-    let end = Instant::now().as_millis();
-    info!("(rgb 6-6-6): {} ms", end - start);
+    display.clear_screen_fast(Rgb111::WHITE).unwrap();
 
-    let mut display = display.change_pixel_format(Rgb111Mode).unwrap();
+    let mut prev = 0u8;
+    let mut i = 0u8;
+    loop {
+        let mut buffer = itoa::Buffer::new();
+        let mut text = Text::with_alignment(
+            buffer.format(prev),
+            display.bounding_box().center() + Point::new(0, 0),
+            style,
+            Alignment::Center,
+        );
+        text.draw(&mut display).unwrap();
 
-    let start = Instant::now().as_millis();
-    display.clear_screen(Rgb111::GREEN).unwrap();
-    let end = Instant::now().as_millis();
-    info!("(rgb 1-1-1): {} ms", end - start);
+        let start = Instant::now().as_millis();
 
-    let start = Instant::now().as_millis();
-    display.clear_screen_fast(Rgb111::BLUE).unwrap();
-    let end = Instant::now().as_millis();
-    info!("(rgb 1-1-1) fast version: {} ms", end - start);
+        let mut buffer = itoa::Buffer::new();
+        text.character_style.text_color = Some(Rgb666::BLACK);
+        text.text = buffer.format(i);
+        text.draw(&mut display).unwrap();
 
-    loop {}
+        let end = Instant::now().as_millis();
+        info!("text render time: {} ms", end - start);
+
+        prev = i;
+        i += 1;
+        if i > 100 {
+            i = 0;
+        }
+        Timer::after_millis(500).await;
+    }
 }

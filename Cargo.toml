@@ -46,7 +46,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 display-interface-spi = { version = "0.5" }
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
-tinybmp = "0.6.0"
+profont = "0.7.0"
+itoa = "1.0.15"
 
 
 [profile.release]

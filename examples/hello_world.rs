@@ -10,17 +10,20 @@ use embassy_stm32::time::Hertz;
 use embassy_stm32::Config;
 use embassy_time::Delay;
 use embedded_graphics::mono_font::iso_8859_14::FONT_10X20;
+use embedded_graphics::pixelcolor::Rgb666;
 use embedded_hal_bus::spi::ExclusiveDevice;
 use {defmt_rtt as _, panic_probe as _};
 
 use embedded_graphics::{
     mono_font::MonoTextStyle,
-    pixelcolor::{Rgb666, RgbColor},
     prelude::*,
+    primitives::{
+        Circle, PrimitiveStyle, PrimitiveStyleBuilder, Rectangle, StrokeAlignment, Triangle,
+    },
     text::{Alignment, Text},
 };
 
-use ili9488_rs::{Ili9488, Orientation, Rgb111, Rgb666Mode};
+use ili9488_rs::{Ili9488, Orientation, Rgb666Mode};
 
 // #[embassy_executor::main]
 #[entry]
@@ -50,9 +53,8 @@ fn main() -> ! {
     let peri = p.SPI3;
     let sclk = p.PB3;
     let mosi = p.PB5;
-    let miso = p.PB4;
 
-    let spi = Spi::new_blocking(peri, sclk, mosi, miso, spi_config);
+    let spi = Spi::new_txonly(peri, sclk, mosi, p.DMA2_CH2, spi_config);
     let cs = Output::new(p.PA0, Level::High, embassy_stm32::gpio::Speed::VeryHigh);
     let spi_device = ExclusiveDevice::new_no_delay(spi, cs).unwrap();
     let dc = Output::new(p.PA1, Level::Low, embassy_stm32::gpio::Speed::VeryHigh);
@@ -72,19 +74,58 @@ fn main() -> ! {
     .unwrap();
     info!("Done");
 
-    // Setup text
-    let character_style = MonoTextStyle::new(&FONT_10X20, Rgb666::BLACK);
-    let text = "Initialized ILI9488\nHello World";
-    let gui_text = Text::with_alignment(
+    // Create styles used by the drawing operations.
+    let thin_stroke = PrimitiveStyle::with_stroke(Rgb666::RED, 2);
+    let thick_stroke = PrimitiveStyle::with_stroke(Rgb666::BLUE, 10);
+    let border_stroke = PrimitiveStyleBuilder::new()
+        .stroke_color(Rgb666::BLUE)
+        .stroke_width(20)
+        .stroke_alignment(StrokeAlignment::Inside)
+        .build();
+    let fill = PrimitiveStyle::with_fill(Rgb666::CSS_GREEN);
+    let character_style = MonoTextStyle::new(&FONT_10X20, Rgb666::CSS_PURPLE);
+
+    // Draw a 3px wide outline around the display.
+    display
+        .bounding_box()
+        .into_styled(border_stroke)
+        .draw(&mut display)
+        .unwrap();
+
+    // Draw a triangle.
+    let yoffset = 60;
+    let i = 80;
+    Triangle::new(
+        Point::new(i, i + yoffset),
+        Point::new(i + i, i + yoffset),
+        Point::new(i + i / 2, yoffset),
+    )
+    .into_styled(thin_stroke)
+    .draw(&mut display)
+    .unwrap();
+
+    // Draw a filled square
+    Rectangle::new(Point::new(200, yoffset), Size::new(i as u32, i as u32))
+        .into_styled(fill)
+        .draw(&mut display)
+        .unwrap();
+
+    // Draw a circle with a 3px wide stroke.
+    Circle::new(Point::new(320, yoffset), (i + 1) as u32)
+        .into_styled(thick_stroke)
+        .draw(&mut display)
+        .unwrap();
+
+    // Draw centered text.
+    let text = "embedded-graphics";
+    Text::with_alignment(
         text,
-        display.bounding_box().center() + Point::new(0, 0),
+        display.bounding_box().center() + Point::new(0, 15),
         character_style,
         Alignment::Center,
-    );
-
-    // Render
-    display.clear_screen_fast(Rgb111::WHITE).unwrap();
-    gui_text.draw(&mut display).unwrap();
+    )
+    .draw(&mut display)
+    .unwrap();
 
     loop {}
 }
