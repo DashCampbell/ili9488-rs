@@ -515,6 +515,9 @@ where
     /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
     ///
     /// `data` - A slice of u16 values in RGB565 big endian format.
+    ///
+    /// Use [image2cpp](https://javl.github.io/image2cpp/)
+    /// to convert images to u16 arrays. `Draw mode` should be `Horizontal - 2 bytes per pixel (565)`
     pub fn draw_rgb565_image(&mut self, x0: u16, y0: u16, width: u16, data: &[u16]) -> Result {
         self.set_window(
             x0,
@@ -537,6 +540,9 @@ where
     /// `original_width` - The original image width
     ///
     /// `screen_width` - The image width on the screen
+    ///
+    /// Use [image2cpp](https://javl.github.io/image2cpp/)
+    /// to convert images to u16 arrays. `Draw mode` should be `Horizontal - 2 bytes per pixel (565)`
     pub fn draw_upscaled_rgb565_image(
         &mut self,
         x0: u16,
