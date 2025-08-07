@@ -34,6 +34,8 @@ cargo run --example <example name>  --release
 cargo run --example hello_world  --release
 ```
 
+Examples are configured for an STM32L432KC.
+
 See the [Display Data Format](https://www.displayfuture.com/Display/datasheet/controller/ILI9488.pdf#page=119) section of the ILI9488's datasheet for allowed pixel formats.
 
 ## License
@@ -63,3 +65,5 @@ additional terms or conditions.
 This crate is a fork of https://github.com/yuri91/ili9341-rs.
 
 Bodmer's [TFT_eSPI](https://github.com/Bodmer/TFT_eSPI/blob/master/TFT_Drivers/ILI9488_Init.h) library for the ILI9488's initialization sequence.
+
+Nyan Cat animation frames: https://github.com/iliana/html5nyancat/tree/master
