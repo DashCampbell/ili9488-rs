@@ -4,6 +4,10 @@
 [![Crates.io](https://img.shields.io/crates/v/ili9488-rs.svg)](https://crates.io/crates/ili9488-rs)
 [![Released API docs](https://docs.rs/ili9488-rs/badge.svg)](https://docs.rs/ili9488-rs)
 
+<p align="center">
+  <img width="460" height="300" src="https://github.com/user-attachments/assets/83c926e7-390c-43b6-a6a6-9a0e3363a499">
+</p>
+
 > A platform agnostic driver to interface with the ILI9488 TFT
 > LCD display
 
