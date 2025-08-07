@@ -1,8 +1,8 @@
 # `ili9488-rs`
 
-<!-- [![Crates.io](https://img.shields.io/crates/d/ili9341.svg)](https://crates.io/crates/ili9341)
-[![Crates.io](https://img.shields.io/crates/v/ili9341.svg)](https://crates.io/crates/ili9341)
-[![Released API docs](https://docs.rs/ili9341/badge.svg)](https://docs.rs/ili9341) -->
+[![Crates.io](https://img.shields.io/crates/d/ili9488-rs.svg)](https://crates.io/crates/ili9488-rs)
+[![Crates.io](https://img.shields.io/crates/v/ili9488-rs.svg)](https://crates.io/crates/ili9488-rs)
+[![Released API docs](https://docs.rs/ili9488-rs/badge.svg)](https://docs.rs/ili9488-rs)
 
 > A platform agnostic driver to interface with the ILI9488 TFT
 > LCD display
