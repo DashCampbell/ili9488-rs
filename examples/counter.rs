@@ -102,6 +102,6 @@ async fn main(_spawner: Spawner) {
         if i > 100 {
             i = 0;
         }
-        Timer::after_millis(500).await;
+        Timer::after_millis(150).await;
     }
 }

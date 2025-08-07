@@ -54,4 +54,4 @@ itoa = "1.0.15"
 debug = 2
 codegen-units = 1
 lto = "fat"
-opt-level = 'z'
+opt-level = 's'
