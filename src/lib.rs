@@ -10,18 +10,18 @@
 //! * Configuration (reset pin, delay, orientation and size) for display
 //!
 //! ```ignore
-//! let iface = SPIInterface::new(spi, dc, cs);
+//! let iface = SPIInterface::new(spi_bus, cs);
 //!
-//! let mut display = Ili9341::new(
+//! let mut display = Ili9488::new(
 //!     iface,
 //!     reset_gpio,
 //!     &mut delay,
 //!     Orientation::Landscape,
-//!     ili9341::DisplaySize240x320,
+//!     Rgb666Mode,
 //! )
 //! .unwrap();
 //!
-//! display.clear(Rgb565::RED).unwrap()
+//! display.clear(Rgb666::RED).unwrap()
 //! ```
 //!
 //! [display-interface-spi crate]: https://crates.io/crates/display-interface-spi
@@ -57,7 +57,6 @@ impl DisplaySize for DisplaySize320x480 {
 }
 
 /// Trait for Valid Pixel Formats for the ILI9488
-/// Implemented by [Rgb111Mode] & [Rgb666Mode]
 pub trait Ili9488PixelFormat: Copy + Clone {
     /// The data used for the PixelFormatSet command
     const DATA: u8;
@@ -70,7 +69,7 @@ pub struct Rgb111Mode;
 impl Ili9488PixelFormat for Rgb111Mode {
     const DATA: u8 = 0x1;
 }
-/// 3 bpp
+/// 16 bpp
 #[derive(Copy, Clone)]
 pub struct Rgb565Mode;
 
@@ -92,7 +91,7 @@ pub trait Ili9488MemoryWrite {
 }
 
 /// For quite a few boards (ESP32-S2-Kaluga-1, M5Stack, M5Core2 and others),
-/// the ILI9341 initialization command arguments are slightly different
+/// the ILI9488 initialization command arguments are slightly different
 ///
 /// This trait provides the flexibility for users to define their own
 /// initialization command arguments suitable for the particular board they are using
@@ -135,12 +134,10 @@ pub enum ModeState {
     Off,
 }
 
-/// In 4-wire spi mode, only RGB111 or RGB666 data formats are supported
+/// The ILI9488 Driver
 ///
 /// There are two method for drawing to the screen:
-/// [Ili9341::draw_raw_iter] and [Ili9341::draw_raw_slice]
-///
-/// In both cases the expected pixel format is rgb565.
+/// [Ili9488::draw_raw_iter] and [Ili9488::draw_raw_slice]
 ///
 /// The hardware makes it efficient to draw rectangles on the screen.
 ///
@@ -148,7 +145,7 @@ pub enum ModeState {
 ///
 /// - A drawing window is prepared (with the 2 opposite corner coordinates)
 /// - The starting point for drawint is the top left corner of this window
-/// - Every pair of bytes received is intepreted as a pixel value in rgb565
+/// - Every pair of bytes received is intepreted as a pixel value in the current display format (Rgb111, Rgb565, etc.)
 /// - As soon as a pixel is received, an internal counter is incremented,
 ///   and the next word will fill the next pixel (the adjacent on the right, or
 ///   the first of the next row if the row ended)
@@ -516,7 +513,8 @@ where
     IFACE: WriteOnlyDataCommand,
 {
     /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
-    /// `data` should be a slice of u16 values in RGB565 format.
+    ///
+    /// `data` - A slice of u16 values in RGB565 big endian format.
     pub fn draw_rgb565_image(&mut self, x0: u16, y0: u16, width: u16, data: &[u16]) -> Result {
         self.set_window(
             x0,
@@ -532,9 +530,12 @@ where
             )
         }))
     }
-    /// Draw a raw RGB565 image buffer to the display in RGB666 mode.
-    /// `data` - A slice of u16 values in RGB565 format.
+    /// Draw an upscaled raw RGB565 image buffer to the display in RGB666 mode.
+    ///
+    /// `data` - A slice of u16 values in RGB565 big endian format.
+    ///
     /// `original_width` - The original image width
+    ///
     /// `screen_width` - The image width on the screen
     pub fn draw_upscaled_rgb565_image(
         &mut self,
@@ -615,7 +616,7 @@ where
         let color = core::iter::repeat(color).take(self.width * self.height);
         self.draw_raw_iter(0, 0, self.width as u16, self.height as u16, color)
     }
-    /// Fast way to fill entire screen, only uses 3 bits per pixel (bpp)
+    /// Fast way to fill the entire screen. Only works with [Rgb111] colors
     pub fn clear_screen_fast(&mut self, color: Rgb111) -> Result {
         // Switch pixel format to 3 bpp
         if PixelFormat::DATA != Rgb111Mode::DATA {

@@ -1,6 +1,7 @@
 use embedded_graphics_core::pixelcolor::IntoStorage;
 use embedded_graphics_core::prelude::{PixelColor, RgbColor};
 
+/// Represents Rgb111 colors
 #[derive(Copy, Clone, Eq, PartialEq, Ord, PartialOrd, Hash, Debug)]
 pub enum Rgb111 {
     BLACK,
