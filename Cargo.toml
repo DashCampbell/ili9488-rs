@@ -2,7 +2,7 @@
 
 [package]
 name = "ili9488-rs"
-version = "0.1.0"
+version = "0.1.1"
 description = "A platform agnostic driver to interface with the ILI9488 TFT LCD display"
 authors = ["Dash Campbell"]
 categories = ["embedded", "hardware-support", "no-std"]
