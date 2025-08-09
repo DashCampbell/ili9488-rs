@@ -72,6 +72,23 @@ where
             Ok(())
         }
     }
+    fn fill_solid(&mut self, area: &Rectangle, color: Self::Color) -> Result<(), Self::Error> {
+        let drawable_area = area.intersection(&self.bounding_box());
+
+        if let Some(drawable_bottom_right) = drawable_area.bottom_right() {
+            let x0 = drawable_area.top_left.x as u16;
+            let y0 = drawable_area.top_left.y as u16;
+            let x1 = drawable_bottom_right.x as u16;
+            let y1 = drawable_bottom_right.y as u16;
+
+            let data = core::iter::repeat(color)
+                .take((drawable_area.size.width * drawable_area.size.height) as usize);
+            self.draw_raw_iter(x0, y0, x1, y1, data)
+        } else {
+            // No pixels are on screen
+            Ok(())
+        }
+    }
 
     fn clear(&mut self, color: Self::Color) -> Result<(), Self::Error> {
         self.clear_screen(color)

@@ -31,7 +31,7 @@ embassy-executor = { version = "0.7.0", features = [
     "arch-cortex-m",
     "executor-thread",
     "defmt",
-    "task-arena-size-16384",
+    "task-arena-size-24576",
 ] }
 embassy-time = { version = "0.4.0", features = [
     "defmt",
@@ -46,7 +46,8 @@ panic-probe = { version = "1.0.0", features = ["print-defmt"] }
 
 display-interface-spi = { version = "0.5" }
 embedded-graphics = { version = "0.8.1", features = ["defmt"] }
-profont = "0.7.0"
+embedded-graphics-framebuf = "0.5.0"
+eg-seven-segment = "0.2.0"
 itoa = "1.0.15"
 
 
